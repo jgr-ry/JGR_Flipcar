@@ -3,7 +3,7 @@ game 'gta5'
 name 'JGR Flip-car'
 repository 'https://github.com/jgr-ry/Flip-car'
 version '1.1.6'
-author 'ItsFlurix'
+author 'Ryder'
 lua54 'yes'
 
 shared_scripts {
