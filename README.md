@@ -15,7 +15,6 @@ Un script versátil y ligero para volcar vehículos, diseñado para ofrecer una 
 * 📦 **Requisitos de Ítem:** Posibilidad de configurar un ítem específico (como un gato hidráulico) para poder volcar el coche.
 * 🛠️ **Compatibilidad Dual:** Funciona con `qbx_core` y `es_extended` sin necesidad de scripts adicionales.
 * ⌨️ **Comandos Personalizables:** Opción de activar comandos de chat para usuarios que no usen target.
-* 🔄 **Sincronización:** Animaciones sincronizadas y barras de progreso integradas con `ox_lib`.
 
 ---
 
