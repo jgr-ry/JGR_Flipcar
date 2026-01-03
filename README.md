@@ -28,6 +28,7 @@ Para un funcionamiento óptimo, asegúrate de tener instalados:
 | **ox_target** | [GitHub](https://github.com/overextended/ox_target) | ✅ Sí |
 | **ox_inventory** | [GitHub](https://github.com/overextended/ox_inventory) | ⚠️ Opcional |
 | **qbx_core** | [GitHub](https://github.com/qbcore-framework/qbx_core) | ⚠️ Opcional |
+| **es_extendede** | [GitHub](https://github.com/qbcore-framework/qbx_core) | ⚠️ Opcional |
 
 ---
 
