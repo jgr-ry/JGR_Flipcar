@@ -1,9 +1,8 @@
 Config = {}
 
-Config.enableUpdates = true                 -- Check GitHub version.
-
-Config.UseESX = true		-- Use ESX Framework
-
+Config.enableUpdates = true 				-- Check GitHub version.
+Config.UseESX = false						-- Use ESX Framework
+Config.UseQBX = true       					-- Use QBX Framework (qbx_core + ox_inventory). Set to true to enable QBX branches.
 Config.UseCustomNotify = true				-- Use a custom notification script, must complete event below.
 
 -- Only complete this event if Config.UseCustomNotify is true; mythic_notification provided as an example
@@ -41,4 +40,5 @@ Config.Lang = {
     ['in_vehicle'] = 'You can not flip the vehicle from inside!',
     ['far_away'] = 'You are not close enough flip the vehicle!',
     ['not_allowed'] = 'You don\'t have the training or tools to flip a vehicle!',
+	['flip'] = 'Flip Vehicle',
 }
