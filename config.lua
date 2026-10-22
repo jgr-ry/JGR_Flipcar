@@ -1,44 +1,54 @@
 Config = {}
 
-Config.enableUpdates = true 				-- Check GitHub version.
-Config.UseESX = false						-- Use ESX Framework
-Config.UseQBX = true       					-- Use QBX Framework (qbx_core + ox_inventory). Set to true to enable QBX branches.
-Config.UseCustomNotify = true				-- Use a custom notification script, must complete event below.
+-- Framework: 'auto' | 'qbx' | 'qb' | 'esx' | 'standalone'
+-- En 'auto' se detecta en este orden: qbx_core -> qb-core -> es_extended -> ox_core/standalone.
+-- (Las antiguas opciones Config.UseESX / Config.UseQBX ya no hacen falta; si borras
+-- Config.Framework y dejas Config.UseESX = true, se fuerza ESX como antes.)
+Config.Framework = 'auto'
 
--- Only complete this event if Config.UseCustomNotify is true; mythic_notification provided as an example
-RegisterNetEvent('flipcar-Ryder:CustomNotify')
-AddEventHandler('flipcar-Ryder:CustomNotify', function(message, type)
-    --exports.mythic_notify:SendAlert(type, message, 4000)
-end)
+-- Notificaciones cuando Config.UseCustomNotify = false:
+-- 'auto' (la del framework y, si no hay, ox_lib) | 'ox_lib' | 'native'
+Config.Notify = 'auto'
 
-Config.TimetoFlip = 3 						-- How long, in seconds, to flip the car.
+Config.UseCustomNotify = false				-- true = usa tu propio sistema de notificaciones (completa el evento de abajo).
 
-Config.Jobs = {								-- List of permitted jobs; leave empty table for to allow all.
+-- Solo se usa si Config.UseCustomNotify = true; mythic_notify como ejemplo.
+if not IsDuplicityVersion() then
+	AddEventHandler('flipcar-Ryder:CustomNotify', function(message, type)
+		--exports.mythic_notify:SendAlert(type, message, 4000)
+	end)
+end
+
+Config.TimetoFlip = 3 						-- Segundos que tarda en dar la vuelta al vehículo.
+Config.FlipDistance = 3.0					-- Distancia máxima (metros) al vehículo.
+
+Config.Jobs = {								-- Trabajos permitidos y grado mínimo; tabla vacía = cualquiera.
 	--["police"] = 0,
 	--["mechanic"] = 0,
 }
-Config.AndOr = false -- Don`t change		--  Logic to determine item requirement, change this to true to use an item
-Config.RequiredItem = 'Workingtofix'		-- Replace 'itemnamehere' with item to be used for flipping vehicles, it is NOT removed on use, it only needs to be in the inventory (can be ignored if Config.AndOr = or and no item is wanted). 
+Config.AndOr = false						-- false = trabajo O ítem; true = trabajo Y ítem (pon true para exigir el ítem).
+Config.RequiredItem = 'Workingtofix'		-- Ítem necesario. NO se gasta, solo hay que llevarlo encima.
 
 
--- Visual Preference
-Config.UseThirdEye = true 					-- Enables using a third eye (depending on version will need to update export to target all vehicles)
-Config.ThirdEyeName = 'qtarget' 			-- Name of third eye aplication
-Config.UseChatCommand = true                -- Enables using chat command
-Config.ChatCommand = 'flipcar'              -- When Config.UseChatCommand = true, is the phrase used to flip vehicle.
+-- Interacción
+Config.UseThirdEye = true 					-- Añade la opción al target (ojo) en todos los vehículos.
+Config.ThirdEyeName = 'auto' 				-- 'auto' | 'ox_target' | 'qb-target' | 'qtarget'
+Config.UseChatCommand = true                -- Activa el comando de chat.
+Config.ChatCommand = 'flipcar'              -- Nombre del comando si Config.UseChatCommand = true.
 
--- Language Configuration
+-- Tipos de notificación
 Config.LangType = {
 	['error'] = 'error',
 	['success'] = 'success',
 	['info'] = 'inform'
 }
 
+-- Textos
 Config.Lang = {
 	['flipped'] = 'You have flipped the vehicle!',
-	['allset'] = 'Vehicle is already upright', 
-    ['in_vehicle'] = 'You can not flip the vehicle from inside!',
-    ['far_away'] = 'You are not close enough flip the vehicle!',
-    ['not_allowed'] = 'You don\'t have the training or tools to flip a vehicle!',
+	['allset'] = 'Vehicle is already upright',
+	['in_vehicle'] = 'You can not flip the vehicle from inside!',
+	['far_away'] = 'You are not close enough flip the vehicle!',
+	['not_allowed'] = 'You don\'t have the training or tools to flip a vehicle!',
 	['flip'] = 'Flip Vehicle',
 }
