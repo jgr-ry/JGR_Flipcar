@@ -1,253 +1,252 @@
-ESX = nil
-PlayerData = nil
-PlayerJob = nil
-PlayerGrade = nil
+local RESOURCE = GetCurrentResourceName()
+local ANIM_DICT = 'missfinale_c2ig_11'
+local ANIM_NAME = 'pushcar_offcliff_m'
+local FLIP_EVENT = 'flipcar-Ryder:flipcar'
+local TARGET_NAME = 'jgr_flipcar'
+local TARGETS = { 'ox_target', 'qb-target', 'qtarget' }
 
-local VehicleData = nil
+local flipping = false
+local warnedJobs = false
+local activeTarget
 
--- Framework detection
-local UsingQBX = false
-local UsingESX = false
-
-if GetResourceState and GetResourceState('qbx_core') == 'started' then
-    UsingQBX = true
-end
-if GetResourceState and GetResourceState('es_extended') == 'started' then
-    UsingESX = true
-end
-
-RegisterNetEvent('flipcar-Ryder:Notify', function(message, type)
+local function notify(message, ntype)
     if Config.UseCustomNotify then
-        TriggerEvent('flipcar-Ryder:CustomNotify', message, type)
-    elseif Config.UseESX and ESX then
-        ESX.ShowNotification(message, false, false, type)
-    elseif UsingQBX and exports.qbx_core and exports.qbx_core.Notify then
-        exports.qbx_core:Notify(message, type)
-    end
-end)
-
-CreateThread(function()
-    -- ESX initialization (tal cual estaba en tu original)
-    if UsingESX then
-        CreateThread(function()
-            while ESX == nil do
-                TriggerEvent('getSharedObject', function(obj) ESX = obj end)
-                Wait(0)
-            end
-            while ESX.GetPlayerData().job == nil do
-                Wait(100)
-            end
-            PlayerData = ESX.GetPlayerData()
-            PlayerJob = PlayerData.job.name
-            PlayerGrade = PlayerData.job.grade
-            RegisterNetEvent('esx:setJob', function(job)
-                PlayerJob = job.name
-                PlayerGrade = job.grade
-            end)
-        end)
-    end
-
-    -- QBX initialization (tal cual estaba en tu original)
-    if UsingQBX then
-        CreateThread(function()
-            while (not PlayerData) and (_G.QBX == nil or _G.QBX.PlayerData == nil) do
-                if _G.QBX and _G.QBX.PlayerData then
-                    PlayerData = _G.QBX.PlayerData
-                    break
-                end
-                Wait(100)
-            end
-            if exports.qbx_core and exports.qbx_core.GetGroups then
-                local groups = exports.qbx_core:GetGroups()
-                PlayerJob = nil
-                PlayerGrade = nil
-                if groups then
-                    for k, v in pairs(groups) do
-                        PlayerJob = k
-                        PlayerGrade = v
-                        break
-                    end
-                end
-            end
-            RegisterNetEvent('qbx_core:client:onGroupUpdate', function()
-                if exports.qbx_core and exports.qbx_core.GetGroups then
-                    local groups = exports.qbx_core:GetGroups()
-                    PlayerJob = nil
-                    PlayerGrade = nil
-                    if groups then
-                        for k, v in pairs(groups) do
-                            PlayerJob = k
-                            PlayerGrade = v
-                            break
-                        end
-                    end
-                end
-            end)
-        end)
-    end
-
-    if Config.UseChatCommand then
-        RegisterCommand(Config.ChatCommand, function()
-            TriggerEvent('flipcar-Ryder:flipcar')
-        end)
-    end
-end)
-
-function hasRequiredJob()
-    local jobs = Config.Jobs == nil or next(Config.Jobs)
-    if jobs then
-        if Config.UseESX and PlayerJob then
-            for jobName, gradeLevel in pairs(Config.Jobs) do
-                if PlayerJob == jobName and PlayerGrade >= gradeLevel then
-                    return true
-                end
-            end
-            return false
-        end
-
-        if UsingQBX and exports.qbx_core and exports.qbx_core.GetGroups then
-            local groups = exports.qbx_core:GetGroups() or {}
-            for jobName, gradeLevel in pairs(Config.Jobs) do
-                if groups[jobName] and groups[jobName] >= gradeLevel then
-                    return true
-                end
-            end
-            return false
-        end
-        return true
+        TriggerEvent('flipcar-Ryder:CustomNotify', message, ntype)
     else
-        return true
+        Bridge.Notify(message, ntype)
     end
 end
 
-RegisterNetEvent('flipcar-Ryder:flipcar')
-AddEventHandler('flipcar-Ryder:flipcar', function()
+-- Evento público: otros recursos (o el servidor) pueden mostrar avisos con el mismo sistema.
+RegisterNetEvent('flipcar-Ryder:Notify', notify)
+
+local function notifyLang(key, typeKey)
+    notify(Config.Lang[key] or key, Config.LangType[typeKey] or typeKey)
+end
+
+---------------------------------------------------------------------------
+-- Permisos
+---------------------------------------------------------------------------
+
+local function hasRequiredJob()
+    if type(Config.Jobs) ~= 'table' or next(Config.Jobs) == nil then
+        return true -- sin lista de trabajos: cualquiera
+    end
+
+    local allowed = Bridge.HasJob(Config.Jobs)
+    if allowed == nil then
+        if not warnedJobs then
+            warnedJobs = true
+            print(('^3[%s]^7 Config.Jobs está configurado pero no hay framework con trabajos (modo %s): la condición de trabajo nunca se cumple.')
+                :format(RESOURCE, Bridge.Framework))
+        end
+        return false
+    end
+    return allowed
+end
+
+local function hasRequiredItem()
+    if type(Config.RequiredItem) ~= 'string' or Config.RequiredItem == '' then return false end
+    return Bridge.GetItemCount(Config.RequiredItem) > 0
+end
+
+local function canFlip()
+    local hasJob, hasItem = hasRequiredJob(), hasRequiredItem()
+    if Config.AndOr then
+        return hasJob and hasItem
+    end
+    return hasJob or hasItem
+end
+
+---------------------------------------------------------------------------
+-- Volcar el vehículo
+---------------------------------------------------------------------------
+
+local function requestControl(entity, timeout)
+    if NetworkHasControlOfEntity(entity) then return true end
+
+    local deadline = GetGameTimer() + (timeout or 1500)
+    repeat
+        NetworkRequestControlOfEntity(entity)
+        Wait(50)
+        if NetworkHasControlOfEntity(entity) then return true end
+    until GetGameTimer() > deadline
+
+    return false
+end
+
+--- Vehículo apuntado con el target o, si no hay, el más cercano.
+local function getVehicle(entity, coords)
+    if entity and entity ~= 0 and DoesEntityExist(entity) and IsEntityAVehicle(entity) then
+        return entity
+    end
+    return lib.getClosestVehicle(coords, Config.FlipDistance or 3.0, false)
+end
+
+local function flipCarOver(entity)
     local ped = PlayerPedId()
-    local inside = IsPedInAnyVehicle(ped, false)
-    local hasJob = hasRequiredJob()
-    local hasItem = RequiredItem()
-    if inside then
-        TriggerEvent('flipcar-Ryder:Notify', Config.Lang['in_vehicle'], Config.LangType['error'])
-    elseif Config.AndOr then
-        if hasJob and hasItem then
-            FlipCarOver()
-        else
-            TriggerEvent('flipcar-Ryder:Notify', Config.Lang['not_allowed'], Config.LangType['error'])
-        end
-    elseif hasJob or hasItem then
-        FlipCarOver()
-    else
-        TriggerEvent('flipcar-Ryder:Notify', Config.Lang['not_allowed'], Config.LangType['error'])
+    local coords = GetEntityCoords(ped)
+    local vehicle = getVehicle(entity, coords)
+
+    if not vehicle or vehicle == 0 or #(coords - GetEntityCoords(vehicle)) > (Config.FlipDistance or 3.0) then
+        return notifyLang('far_away', 'error')
     end
+
+    if IsVehicleOnAllWheels(vehicle) then
+        return notifyLang('allset', 'error')
+    end
+
+    flipping = true
+    local ok, err = pcall(function()
+        lib.requestAnimDict(ANIM_DICT)
+        TaskPlayAnim(ped, ANIM_DICT, ANIM_NAME, 2.0, -8.0, -1, 35, 0, false, false, false)
+        Wait((tonumber(Config.TimetoFlip) or 3) * 1000)
+        ClearPedTasks(ped)
+        RemoveAnimDict(ANIM_DICT)
+
+        if DoesEntityExist(vehicle) then
+            -- Sin control de red el giro no se sincroniza con el resto de jugadores.
+            requestControl(vehicle)
+            local rot = GetEntityRotation(vehicle, 2)
+            SetEntityRotation(vehicle, rot.x, 0.0, rot.z, 2, true)
+            SetVehicleOnGroundProperly(vehicle)
+            notifyLang('flipped', 'success')
+        end
+    end)
+    flipping = false
+
+    if not ok then
+        ClearPedTasks(ped)
+        print(('^1[%s]^7 Error al volcar el vehículo: %s'):format(RESOURCE, tostring(err)))
+    end
+end
+
+AddEventHandler(FLIP_EVENT, function(data)
+    if flipping then return end
+
+    if IsPedInAnyVehicle(PlayerPedId(), false) then
+        return notifyLang('in_vehicle', 'error')
+    end
+
+    if not canFlip() then
+        return notifyLang('not_allowed', 'error')
+    end
+
+    -- Desde el target llega la entidad apuntada en data.entity.
+    flipCarOver(type(data) == 'table' and data.entity or nil)
 end)
+RegisterNetEvent(FLIP_EVENT)
 
-CreateThread(function()
-    if Config.UseThirdEye then
-        local thirdEye = Config.ThirdEyeName or ''
-        local hasOxTarget = GetResourceState('ox_target') == 'started'
-        local hasQTarget = GetResourceState('qtarget') == 'started'
+---------------------------------------------------------------------------
+-- Comando
+---------------------------------------------------------------------------
 
-        if (thirdEye == 'ox_target') or hasOxTarget then
-            if exports.ox_target and exports.ox_target.addGlobalVehicle then
-                exports.ox_target:addGlobalVehicle({
-                    {
-                        event = 'flipcar-Ryder:flipcar',
-                        icon = 'fas fa-arrow-up',
-                        label = Config.Lang['flip'],
-                        distance = 2.0
-                    }
-                })
-            end
-        else
-            if exports[thirdEye] and exports[thirdEye].Vehicle then
-                exports[thirdEye]:Vehicle({
-                    options = {
-                        {
-                            event = 'flipcar-Ryder:flipcar',
-                            icon = 'fas fa-arrow-up',
-                            label = Config.Lang['flip'],
-                            distance = 2
-                        },
-                    },
-                })
-            elseif hasQTarget and exports.qtarget and exports.qtarget.AddGlobalVehicle then
-                exports.qtarget:AddGlobalVehicle({
-                    {
-                        event = 'flipcar-Ryder:flipcar',
-                        icon = 'fas fa-arrow-up',
-                        label = Config.Lang['flip'],
-                        distance = 2.0
-                    }
-                })
-            end
-        end
-    end
-end)
+if Config.UseChatCommand and Config.ChatCommand then
+    RegisterCommand(Config.ChatCommand, function()
+        TriggerEvent(FLIP_EVENT)
+    end, false)
+end
 
-function RequiredItem()
-    local hasItem = false
-    if Config.UseESX and ESX and ESX.GetPlayerData then
-        PlayerData = ESX.GetPlayerData()
-        if PlayerData and PlayerData.inventory then
-            for k, v in ipairs(PlayerData.inventory) do
-                if v.name == Config.RequiredItem and v.count > 0 then
-                    hasItem = true
-                    break
-                end
-            end
-        end
-        return hasItem
-    end
+---------------------------------------------------------------------------
+-- Target (ojo)
+---------------------------------------------------------------------------
 
-    if UsingQBX then
-        if exports.ox_inventory and exports.ox_inventory.GetItemCount then
-            local count = exports.ox_inventory:GetItemCount(Config.RequiredItem) or 0
-            return count > 0
-        end
-        if PlayerData and PlayerData.items then
-            for k, v in pairs(PlayerData.items) do
-                if (v.name == Config.RequiredItem or v.item == Config.RequiredItem) and (v.amount and v.amount > 0 or v.count and v.count > 0) then
-                    return true
-                end
-            end
-        end
+local function isKnownTarget(name)
+    for i = 1, #TARGETS do
+        if TARGETS[i] == name then return true end
     end
     return false
 end
 
--- FUNCIÓN CORREGIDA: Se añadió pedCoords para evitar el error de nil
-function FlipCarOver()
-    local ped = PlayerPedId()
-    local pedCoords = GetEntityCoords(ped)
-    
-    -- Intento de obtener el vehículo con soporte para múltiples métodos
-    if ESX and ESX.Game and ESX.Game.GetClosestVehicle then
-        VehicleData = ESX.Game.GetClosestVehicle(pedCoords)
-    elseif lib and lib.getClosestVehicle then
-        -- Aquí es donde estaba el error: ahora pasamos pedCoords explícitamente
-        VehicleData = lib.getClosestVehicle(pedCoords, 3.0, false)
-    else
-        -- Fallback nativo
-        VehicleData = GetClosestVehicle(pedCoords.x, pedCoords.y, pedCoords.z, 3.0, 0, 71)
+--- Espera (máx. 10 s) a que arranque un target y devuelve su nombre.
+local function resolveTarget()
+    local wanted = Config.ThirdEyeName
+    local candidates = TARGETS
+
+    if wanted and wanted ~= 'auto' then
+        if isKnownTarget(wanted) and GetResourceState(wanted) ~= 'missing' then
+            candidates = { wanted }
+        else
+            print(('^3[%s]^7 Config.ThirdEyeName = "%s" no está disponible; se detecta automáticamente.'):format(RESOURCE, tostring(wanted)))
+        end
     end
 
-    if not VehicleData or VehicleData == 0 then return end
-
-    local dist = #(pedCoords - GetEntityCoords(VehicleData))
-    
-    if dist <= 3 and not IsVehicleOnAllWheels(VehicleData) then
-        RequestAnimDict('missfinale_c2ig_11')
-        while not HasAnimDictLoaded('missfinale_c2ig_11') do
-            Wait(10)
+    local deadline = GetGameTimer() + 10000
+    repeat
+        for i = 1, #candidates do
+            if GetResourceState(candidates[i]) == 'started' then return candidates[i] end
         end
-        TaskPlayAnim(ped, 'missfinale_c2ig_11', 'pushcar_offcliff_m', 2.0, -8.0, -1, 35, 0, 0, 0, 0)
-        Wait(Config.TimetoFlip * 1000)
-        local carRot = GetEntityRotation(VehicleData, 2)
-        SetEntityRotation(VehicleData, carRot[1], 0, carRot[3], 2, true)
-        SetVehicleOnGroundProperly(VehicleData)
-        TriggerEvent('flipcar-Ryder:Notify', Config.Lang['flipped'], Config.LangType['success'])
-        ClearPedTasks(ped)
-    elseif IsVehicleOnAllWheels(VehicleData) then
-        TriggerEvent('flipcar-Ryder:Notify', Config.Lang['allset'], Config.LangType['error'])
+        Wait(500)
+    until GetGameTimer() > deadline
+
+    return nil
+end
+
+local function addTarget(target)
+    local label = Config.Lang['flip']
+
+    if target == 'ox_target' then
+        exports.ox_target:addGlobalVehicle({
+            {
+                name = TARGET_NAME,
+                event = FLIP_EVENT,
+                icon = 'fas fa-arrow-up',
+                label = label,
+                distance = 2.0,
+            },
+        })
+    elseif target == 'qb-target' then
+        exports['qb-target']:AddGlobalVehicle({
+            options = {
+                {
+                    type = 'client',
+                    event = FLIP_EVENT,
+                    icon = 'fas fa-arrow-up',
+                    label = label,
+                },
+            },
+            distance = 2.0,
+        })
+    elseif target == 'qtarget' then
+        exports.qtarget:Vehicle({
+            options = {
+                {
+                    event = FLIP_EVENT,
+                    icon = 'fas fa-arrow-up',
+                    label = label,
+                },
+            },
+            distance = 2.0,
+        })
     end
 end
+
+if Config.UseThirdEye then
+    CreateThread(function()
+        local target = resolveTarget()
+        if not target then
+            print(('^3[%s]^7 Config.UseThirdEye = true pero no se encontró ox_target, qb-target ni qtarget.'):format(RESOURCE))
+            return
+        end
+
+        local ok, err = pcall(addTarget, target)
+        if ok then
+            activeTarget = target
+        else
+            print(('^1[%s]^7 No se pudo registrar la opción en %s: %s'):format(RESOURCE, target, tostring(err)))
+        end
+    end)
+end
+
+AddEventHandler('onResourceStop', function(resource)
+    if resource ~= RESOURCE or not activeTarget then return end
+
+    -- ox_target limpia solo las opciones de recursos parados; qb-target y qtarget no.
+    if activeTarget == 'ox_target' then
+        pcall(function() exports.ox_target:removeGlobalVehicle(TARGET_NAME) end)
+    elseif activeTarget == 'qb-target' then
+        pcall(function() exports['qb-target']:RemoveGlobalVehicle(Config.Lang['flip']) end)
+    elseif activeTarget == 'qtarget' then
+        pcall(function() exports.qtarget:RemoveVehicle({ Config.Lang['flip'] }) end)
+    end
+end)
